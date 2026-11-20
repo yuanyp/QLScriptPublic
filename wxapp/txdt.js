@@ -5,13 +5,21 @@
 @Description: 腾讯地图 签到领现金/现金余额查询
 cron: 18 8 * * *
 ------------------------------------------
+【抓包直连模式（推荐，无需 wx_server 中转服务）】
 变量名：txdt
-变量值：wx_server 里的 openid，多账号用 & 或换行
+变量值：openid#user_id#session_id#map_session_id[#备注]
+  - 抓包方式：微信里打开腾讯地图小程序，用 Reqable 抓
+    POST https://miniapp.map.qq.com/minLogin/v2/login 的响应（err_code=0 那条），
+    从 data 里取出 openid / user_id / session_id / map_session_id 四个字段，按上面顺序拼成一行。
+  - 也支持 JSON（字段名兼容 openid/user_id/session_id/map_session_id，或驼峰 openId/userId/sessionId/mapSessionId）：
+    {"openid":"xxx","user_id":"xxx","session_id":"xxx","map_session_id":"xxx","remark":"备注"}
+  - 也支持直接填 /minLogin/v2/login 响应的整个 data JSON（脚本会按上面的字段自动提取）。
+  - map_session_id 若无则留空（openid#user_id#session_id 三段也可）。
+  - 多账号用 & 或换行分隔。
+  - 凭证有效期未知，报 AUTH/登录失效时重抓一次即可，无需改脚本。
 
-也支持 JSON：
-{"openid":"xxx"}
-
-依赖变量：
+【中转模式（原有逻辑，需自建 wx_server）】
+变量值：仅 openid 时走中转模式，需配下面两个全局变量：
 wx_server_url  默认 http://192.168.31.196:8787
 wx_auth        必填，wx_server 鉴权值
 ------------------------------------------
@@ -81,15 +89,53 @@ function formatCoin(value) {
     return `${num}(${(num / 100).toFixed(2)})`;
 }
 
+function pick(data, ...keys) {
+    for (const key of keys) {
+        if (data[key] !== undefined && data[key] !== null && data[key] !== "") return data[key];
+    }
+    return "";
+}
+
 function parseAccount(raw) {
     const text = String(raw || "").trim();
     if (!text) return {};
     if (text.startsWith("{")) {
+        // 支持两种 JSON：
+        //   1) 精简凭证 {"openid","user_id","session_id","map_session_id"}
+        //   2) /minLogin/v2/login 响应的整个 data（字段更多，自动提取可用的）
         const data = JSON.parse(text);
-        return { raw: text, openid: data.openid || data.openId || "", remark: data.remark || data.name || "" };
+        const nested = data.data && typeof data.data === "object" ? data.data : data;
+        // 只有当 JSON 里带登录凭证字段时，才走直连；否则视为旧式仅 openid 的中转配置
+        const userId = pick(nested, "user_id", "userId");
+        const sessionId = pick(nested, "session_id", "sessionId");
+        if (userId || sessionId) {
+            return {
+                raw: text,
+                direct: true,
+                openid: String(pick(nested, "openid", "openId") || ""),
+                user_id: String(userId || ""),
+                session_id: String(sessionId || ""),
+                map_session_id: String(pick(nested, "map_session_id", "mapSessionId") || ""),
+                remark: String(pick(nested, "remark", "name") || ""),
+            };
+        }
+        return { raw: text, openid: String(pick(nested, "openid", "openId") || ""), remark: String(pick(nested, "remark", "name") || "") };
     }
-    const [openid, remark] = text.split("#").map((item) => item.trim());
-    return { raw: text, openid, remark };
+    const parts = text.split("#").map((item) => item.trim());
+    // 抓包直连：openid#user_id#session_id#map_session_id[#备注]（至少 3 段）
+    if (parts.length >= 3) {
+        return {
+            raw: text,
+            direct: true,
+            openid: parts[0] || "",
+            user_id: parts[1] || "",
+            session_id: parts[2] || "",
+            map_session_id: parts[3] || "",
+            remark: parts[4] || "",
+        };
+    }
+    const [openid, remark] = parts;
+    return { raw: text, openid: openid || "", remark: remark || "" };
 }
 
 async function request(options) {
@@ -108,15 +154,25 @@ async function request(options) {
 }
 
 async function getWxCode(openid) {
-    if (!WX_AUTH) throw new Error("未配置 wx_auth，无法从 wx_server 获取 code");
     const { status, data } = await request({
         method: "POST",
         url: `${WX_SERVER_URL}/wx/code`,
-        headers: { auth: WX_AUTH, "content-type": "application/json" },
-        data: { appid: APP.appid, openid },
+        headers: {
+            auth: WX_AUTH,
+            ...(WX_AUTH ? { Authorization: `Bearer ${WX_AUTH}` } : {}),
+            "content-type": "application/json",
+        },
+        // 兼容 smallcat({appid,openid}) 与 yyb-go 等({app_id,ref})
+        data: { appid: APP.appid, openid, app_id: APP.appid, ref: openid },
     });
-    const code = data?.data?.code || data?.code;
-    if (status !== 200 || !code) throw new Error(`获取code失败 HTTP ${status}: ${short(data)}`);
+    // 兼容多种取码服务返回结构：
+    //   smallcat : {code} / {data:{code}}
+    //   yyb-go   : {code:0, data:{openid, result:{code, errMsg}}}
+    //   早期mock : {result:{code}}
+    const code = data?.data?.result?.code || data?.data?.code || data?.code || data?.result?.code;
+    if (status !== 200 || !code) {
+        throw new Error(`获取code失败 HTTP ${status}: ${short(data)}${WX_AUTH ? "" : "（未配置 wx_auth）"}`);
+    }
     return code;
 }
 
@@ -200,26 +256,64 @@ class TencentMap {
     }
 
     async miniLogin() {
-        if (!this.account.openid) throw new Error("账号格式错误，请配置 wx_server 里的 openid");
-        const code = await getWxCode(this.account.openid);
-        const body = {
-            seqid: uuid(),
-            app_id: APP.appid,
-            auth_code: code,
-            devHeader: {},
-        };
-        const { status, data } = await request({
-            method: "POST",
-            url: `${MINI_LOGIN_BASE}/minLogin/v2/login`,
-            headers: {
-                "content-type": "application/json",
-                ...loginSign({ appId: APP.appid, postBody: body }),
-            },
-            data: body,
-        });
-        if (status !== 200 || Number(data?.err_code) !== 0) throw new Error(`登录失败 HTTP ${status}: ${short(data)}`);
-        this.loginInfo = { ...data, appId: APP.appid };
-        $.log(`登录：成功 userId=${data.user_id || "未知"}，openid=${data.openid || "未知"}`);
+        // 优先中转模式：配置了 wx_server_url（已换成动态 code 服务）时，每次运行动态登录，凭证永不过期
+        // 抓包直连仅作为未配置中转服务时的兜底
+        const useRelay = !!(process.env.wx_server_url && this.account.openid);
+        if (useRelay) {
+            if (!this.account.openid) throw new Error("账号格式错误，请配置 openid");
+            let code;
+            try {
+                code = await getWxCode(this.account.openid);
+            } catch (e) {
+                // 中转取码失败时，如果有抓包凭证则降级兜底
+                if (this.account.direct && this.account.session_id) {
+                    $.log(`中转取码失败(${e.message})，降级使用抓包凭证`);
+                    this.loginInfo = {
+                        openid: this.account.openid,
+                        user_id: this.account.user_id,
+                        session_id: this.account.session_id,
+                        map_session_id: this.account.map_session_id,
+                        appId: APP.appid,
+                    };
+                    return;
+                }
+                throw e;
+            }
+            const body = {
+                seqid: uuid(),
+                app_id: APP.appid,
+                auth_code: code,
+                devHeader: {},
+            };
+            const { status, data } = await request({
+                method: "POST",
+                url: `${MINI_LOGIN_BASE}/minLogin/v2/login`,
+                headers: {
+                    "content-type": "application/json",
+                    ...loginSign({ appId: APP.appid, postBody: body }),
+                },
+                data: body,
+            });
+            if (status !== 200 || Number(data?.err_code) !== 0) throw new Error(`登录失败 HTTP ${status}: ${short(data)}`);
+            this.loginInfo = { ...data, appId: APP.appid };
+            $.log(`登录：中转动态登录成功 userId=${data.user_id || "未知"}，openid=${data.openid || "未知"}（凭证不过期）`);
+            return;
+        }
+        // 抓包直连模式：环境变量里已带 user_id/session_id，无中转服务时使用
+        if (this.account.direct) {
+            const missing = ["openid", "user_id", "session_id"].filter((k) => !this.account[k]);
+            if (missing.length) throw new Error(`抓包凭证缺少字段：${missing.join("、")}（格式 openid#user_id#session_id#map_session_id）`);
+            this.loginInfo = {
+                openid: this.account.openid,
+                user_id: this.account.user_id,
+                session_id: this.account.session_id,
+                map_session_id: this.account.map_session_id,
+                appId: APP.appid,
+            };
+            $.log(`登录：抓包直连 userId=${this.account.user_id}，openid=${this.account.openid}（未走 wx_server）`);
+            return;
+        }
+        throw new Error("账号格式错误，请配置 openid 或抓包凭证");
     }
 
     async queryUser() {
