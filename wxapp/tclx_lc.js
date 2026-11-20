@@ -46,6 +46,13 @@ function short(value, max = 220) {
     return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+// 账号标识脱敏：只保留前6后4，避免 openid 明文落日志
+function mask(v) {
+    const s = String(v || "");
+    if (!s) return "未知";
+    return s.length <= 10 ? s.replace(/./g, "*") : `${s.slice(0, 6)}****${s.slice(-4)}`;
+}
+
 function formatDate(date = new Date()) {
     const pad = (n) => String(n).padStart(2, "0");
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -93,13 +100,15 @@ async function getWxCode(appid, openid) {
             method: "POST",
             url: `${WX_SERVER_URL}/wx/code`,
             headers,
-            data: { appid, openid },
+            // 兼容两套取码服务：smallcat={appid,openid}；yyb-go 额外需要 app_id/ref
+            data: { appid, openid, app_id: appid, ref: openid },
         });
         if (data && data.status === false) {
             lastMsg = data.message || "获取失败";
             continue;
         }
-        const code = data?.code || data?.data?.code;
+        // 取码字段归一化：smallcat = {code}/{data.code}；yyb-go = {data:{result:{code}}}
+        const code = data?.data?.result?.code || data?.result?.code || data?.data?.code || data?.code;
         if (status === 200 && code) return code;
         lastMsg = `HTTP ${status}: ${short(data)}`;
     }
@@ -222,7 +231,7 @@ class Tongcheng {
 }
 
 async function runAccount(openid, index) {
-    $.log(`\n========== ${APP.name} 账号[${index}] ${openid} ==========`);
+    $.log(`\n========== ${APP.name} 账号[${index}] ${mask(openid)} ==========`);
     const runner = new Tongcheng(openid);
     try {
         $.log(`登录：${await runner.login()}`);

@@ -57,6 +57,13 @@ function short(value, max = 320) {
     return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+// 账号标识脱敏：只保留前6后4，避免 openid 明文落日志
+function mask(v) {
+    const s = String(v || "");
+    if (!s) return "未知";
+    return s.length <= 10 ? s.replace(/./g, "*") : `${s.slice(0, 6)}****${s.slice(-4)}`;
+}
+
 function md5(value) {
     return crypto.createHash("md5").update(String(value)).digest("hex");
 }
@@ -296,7 +303,7 @@ class TencentMap {
             });
             if (status !== 200 || Number(data?.err_code) !== 0) throw new Error(`登录失败 HTTP ${status}: ${short(data)}`);
             this.loginInfo = { ...data, appId: APP.appid };
-            $.log(`登录：中转动态登录成功 userId=${data.user_id || "未知"}，openid=${data.openid || "未知"}（凭证不过期）`);
+            $.log(`登录：中转动态登录成功 userId=${data.user_id || "未知"}，openid=${mask(data.openid)}（凭证不过期）`);
             return;
         }
         // 抓包直连模式：环境变量里已带 user_id/session_id，无中转服务时使用
@@ -310,7 +317,7 @@ class TencentMap {
                 map_session_id: this.account.map_session_id,
                 appId: APP.appid,
             };
-            $.log(`登录：抓包直连 userId=${this.account.user_id}，openid=${this.account.openid}（未走 wx_server）`);
+            $.log(`登录：抓包直连 userId=${this.account.user_id}，openid=${mask(this.account.openid)}（未走 wx_server）`);
             return;
         }
         throw new Error("账号格式错误，请配置 openid 或抓包凭证");
@@ -424,7 +431,7 @@ class TencentMap {
     }
 
     async run() {
-        $.log(`\n========== ${APP.name} 账号[${this.index}] ${this.account.remark || this.account.openid} ==========`);
+        $.log(`\n========== ${APP.name} 账号[${this.index}] ${this.account.remark || mask(this.account.openid)} ==========`);
         await this.miniLogin();
         await this.queryUser();
         await this.queryBalance("签到前现金余额");

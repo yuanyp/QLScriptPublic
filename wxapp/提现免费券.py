@@ -48,9 +48,13 @@ class ClaimError(RuntimeError):
 
 def getjscode(openid: str) -> list[str]:
     url = f"{BRIDGE_BASE_URL}/wx/code"
-    params = {"userKey": openid, "openid": openid, "appid": APPID}
+    # 兼容两套取码服务：smallcat={userKey,openid,appid}；yyb-go 额外需要 app_id/ref
+    params = {"userKey": openid, "openid": openid, "appid": APPID,
+              "app_id": APPID, "ref": openid}
     try:
-        resp = requests.post(url=url, json=params, headers={"auth": APIKEY}, timeout=BRIDGE_TIMEOUT, verify=False)
+        resp = requests.post(url=url, json=params,
+                             headers={"auth": APIKEY, "Authorization": f"Bearer {APIKEY}" if APIKEY else ""},
+                             timeout=BRIDGE_TIMEOUT, verify=False)
     except requests.RequestException as err:
         raise ClaimError(f"桥接服务请求失败：{err}") from err
 
@@ -58,10 +62,15 @@ def getjscode(openid: str) -> list[str]:
         raise ClaimError(f"桥接服务返回 HTTP {resp.status_code}：{resp.text}")
 
     data = resp.json()
-    if not data.get("status"):
+    # 兼容两种失败上报：smallcat={status:false,message}；yyb-go={code!=0 或 msg!=success}
+    if data.get("status") is False or (data.get("code") not in (None, 0) or
+                                        (data.get("msg") and data.get("msg") != "success")):
         raise ClaimError(f"桥接服务返回失败：{data}")
 
-    code = data.get("data", {}).get("code")
+    # 取码字段归一化：smallcat=data.code；yyb-go=data.result.code
+    payload = data.get("data") or {}
+    result = payload.get("result") or {}
+    code = result.get("code") or payload.get("code") or data.get("code")
     if not code:
         raise ClaimError(f"桥接服务未返回 code：{data}")
     return [code]

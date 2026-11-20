@@ -191,7 +191,8 @@ class Task {
                 levels: user.levels,
             });
             this.saveCachedToken();
-            $.log(`账号[${this.index}] 登录成功: ${this.levels || "会员"} ${this.customerNo || this.memberId || ""}`);
+            const _mid = String(this.customerNo || this.memberId || "");
+            $.log(`账号[${this.index}] 登录成功: ${this.levels || "会员"} ${_mid ? "会员号****" + _mid.slice(-4) : ""}`);
         } catch (e) {
             $.log(`账号[${this.index}] 登录失败: ${e.message || e}`);
         }

@@ -6,3 +6,13 @@ package*.json
 Tools/
 wxapp/*_token_cache.json
 daily/*_token_cache.json
+
+# 本地运维文档/工作记录（含 openid、鉴权值等敏感信息，禁止提交）
+运维手册.md
+HANDOFF.md
+.workbuddy/
+.audit/
+
+# Python 编译缓存
+__pycache__/
+*.pyc

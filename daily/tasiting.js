@@ -64,7 +64,8 @@ class Task {
             //打印签到结果
             this.userFlag = true
             this.phone = result.result.phone
-            $.log(`🌸账号[${this.index}]手机号：[${result.result.phone}]`);
+            const maskedPhone = this.phone ? String(this.phone).replace(/^(.{3}).*(.{4})$/, '$1****$2') : ''
+            $.log(`🌸账号[${this.index}]手机号：[${maskedPhone}]`);
         } else {
             $.log(`🌸账号[${this.index}] 查询-失败:${JSON.stringify(result)}❌`)
         }
