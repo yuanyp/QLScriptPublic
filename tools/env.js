@@ -58,7 +58,20 @@ function Env(t, s) {
             if (v && typeof v == "object") try { return JSON.stringify(v) } catch { return "[Complex Object]" }
             return String(v);
         }
+        // 本次运行是否出现过失败（用于“仅失败时通知”）
+        _hasFailure() {
+            const text = this.notifyStr.join('\n');
+            // 命中任一失败标记即认为失败（多账号时只要有一个失败就发通知）
+            const failRe = /执行失败|获取code失败|获取 code 失败|登录失败|处理失败|签到失败|未配置|触发滑块验证码|需要重新扫码|re-scan required|account not found|account .*not found|status code 409|HTTP 409|EAI_AGAIN|ENOTFOUND|ECONNRESET|ETIMEDOUT/;
+            return failRe.test(text);
+        }
         async sendMsg() {
+            // 默认仅在失败时发通知；设 NOTIFY_ONLY_ON_FAILURE=0 可恢复为每次都发
+            const onlyOnFailure = typeof process === 'undefined' || !process.env || (process.env.NOTIFY_ONLY_ON_FAILURE || '1') !== '0';
+            if (onlyOnFailure && !this._hasFailure()) {
+                console.log('本次执行未发现失败，跳过通知（需每次都发可设 NOTIFY_ONLY_ON_FAILURE=0）');
+                return;
+            }
             this.log("==============📣Center 通知📣==============")
             let message = this.notifyStr.join(this.logSeparator);
             if (this.isNode()) {

@@ -90,6 +90,8 @@ class Task {
             await this.user_info()
         }
         if (!this.ckStatus) return
+        // 每日签到（原脚本 task_signin 未被调用，此处接入使其生效）
+        await this.task_signin()
         await this.getLoginUrl()
         if (this.activityOrigin) {
             await this.getActivityToken()

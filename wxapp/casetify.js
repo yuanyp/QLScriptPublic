@@ -228,7 +228,7 @@ class Task {
         return result.data || {};
     }
 
-    async doSign() {
+    async doSign(retried = false) {
         try {
             const before = await this.getSignInfo();
             const signDays = Array.isArray(before.signDays) ? before.signDays : [];
@@ -258,6 +258,17 @@ class Task {
             $.log(`账号[${this.index}] 签到成功: +${task?.awardPrice || "未知"}积分`);
         } catch (e) {
             const message = e.message || e;
+            if (isTokenError(message) && !retried) {
+                $.log(`账号[${this.index}] 签到时登录态失效，重新取code登录后重试`);
+                this.removeCachedToken();
+                await this.loginByWxCode();
+                if (!this.token) {
+                    $.log(`账号[${this.index}] 重新登录失败，本次跳过签到`);
+                    return;
+                }
+                await this.doSign(true);
+                return;
+            }
             $.log(`账号[${this.index}] 签到失败: ${message}`);
             if (isTokenError(message)) this.removeCachedToken();
         }

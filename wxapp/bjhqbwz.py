@@ -147,8 +147,11 @@ def get_wx_code(account_id):
     if not WX_AUTH:
         raise RuntimeError("缺少 wx_auth, 无法从 wx_server 获取 code")
     headers = {"Accept": "application/json", "Content-Type": "application/json",
-               "auth": WX_AUTH}
-    body = json.dumps({"appid": MINI_APP_ID, "openid": account_id})
+               "auth": WX_AUTH,
+               "Authorization": f"Bearer {WX_AUTH}" if WX_AUTH else ""}
+    # 同时发两套字段名：兼容 smallcat({appid,openid}) 与 yyb-go({app_id,ref})
+    body = json.dumps({"appid": MINI_APP_ID, "openid": account_id,
+                       "app_id": MINI_APP_ID, "ref": account_id})
     last_msg = ""
     for attempt in range(4):
         if attempt:
@@ -166,7 +169,13 @@ def get_wx_code(account_id):
         if isinstance(data, dict) and data.get("status") is False:
             last_msg = data.get("message") or "获取失败"
             continue
-        code = data.get("code") or (data.get("data") or {}).get("code")
+        # 兼容 yyb-go {code:0,data:{result:{code}}} 与 smallcat {data:{code}}
+        code = None
+        if isinstance(data, dict):
+            code = ((data.get("data") or {}).get("result") or {}).get("code") \
+                   or (data.get("result") or {}).get("code") \
+                   or (data.get("data") or {}).get("code") \
+                   or data.get("code")
         if code:
             return code
         last_msg = "wx_server 未返回 code"

@@ -199,16 +199,25 @@ function deriveSecret(privateKey, serverJwkB64) {
 async function wxServerCode(openid, appid) {
   const { data } = await axios.post(
     `${wechat.serverUrl}/wx/code`,
-    { appid, openid },
+    // 同时发两套字段名：兼容 smallcat({appid,openid}) 与 yyb-go({app_id,ref})
+    { appid, openid, app_id: appid, ref: openid },
     {
-      headers: { auth: wechat.auth },
+      headers: {
+        auth: wechat.auth,
+        Authorization: wechat.auth ? `Bearer ${wechat.auth}` : undefined,
+      },
       timeout: 30000,
       validateStatus: () => true,
     }
   );
-  if (!data?.status) throw new Error(data?.message || "wx_server 获取 code 失败");
-  const code = data.data?.code || data.code;
-  if (!code) throw new Error(`wx_server 未返回 code: ${JSON.stringify(data)}`);
+  // yyb-go 返回 {code:0, msg:success, data:{result:{code}}}，无 status 字段；
+  // smallcat 返回 {status:true, ...}。按“显式失败”判断，不能只看 status。
+  if (data?.status === false || (data?.code !== undefined && Number(data.code) !== 0)) {
+    throw new Error(data?.message || data?.msg || "wx_server 获取 code 失败");
+  }
+  // 归一化 code：兼容 data.result.code / data.code / 顶层 code
+  const code = data?.data?.result?.code || data?.data?.code || data?.code;
+  if (!code || typeof code !== "string") throw new Error(`wx_server 未返回 code: ${JSON.stringify(data)}`);
   return code;
 }
 
