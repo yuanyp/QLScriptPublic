@@ -40,6 +40,14 @@ function short(value, max = 500) {
     return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+function maskOpenId(value = "") {
+    const text = String(value || "");
+    if (!text) return "";
+    if (/^ow[A-Za-z0-9_-]{20,}$/.test(text)) return `${text.slice(0, 6)}****`;
+    if (text.length <= 8) return text;
+    return `${text.slice(0, 6)}****${text.slice(-4)}`;
+}
+
 function parseAccount(raw = "") {
     const text = String(raw || "").trim();
     if (!text) return {};
@@ -84,9 +92,9 @@ async function getWxCode(openid) {
         method: "POST",
         url: `${WX_SERVER_URL}/wx/code`,
         headers: { auth: WX_AUTH },
-        data: { appid: APP.appid, openid },
+        data: { appid: APP.appid, openid, app_id: APP.appid, ref: openid },
     });
-    const code = data?.data?.code || data?.code;
+    const code = data?.data?.result?.code || data?.data?.code || data?.code;
     if (status !== 200 || !code) throw new Error(`获取 code 失败 HTTP ${status}: ${short(data)}`);
     return code;
 }
@@ -100,7 +108,9 @@ class YouDianYunChuang {
     }
 
     log(message) {
-        $.log(`账号[${this.index}]${this.account.remark ? `[${this.account.remark}]` : ""} ${message}`);
+        let safe = String(message == null ? "" : message);
+        if (this.openid) safe = safe.split(this.openid).join(maskOpenId(this.openid));
+        $.log(`账号[${this.index}]${this.account.remark ? `[${this.account.remark}]` : ""} ${safe}`);
     }
 
     async api(data = {}) {

@@ -100,9 +100,9 @@ async function getWxCode(openid) {
         method: "POST",
         url: `${WX_SERVER_URL}/wx/code`,
         headers: { auth: WX_AUTH, "content-type": "application/json" },
-        data: { appid: APP.appid, openid },
+        data: { appid: APP.appid, openid, app_id: APP.appid, ref: openid },
     });
-    const code = data?.data?.code || data?.code;
+    const code = data?.data?.result?.code || data?.data?.code || data?.code;
     if (status !== 200 || !code) throw new Error(`获取code失败 HTTP ${status}: ${short(data)}`);
     return code;
 }
@@ -229,7 +229,8 @@ class ZtoExpress {
     }
 
     async run() {
-        $.log(`\n========== ${APP.name} 账号[${this.index}] ${this.account.remark || this.account.openid || "token"} ==========`);
+        const label = this.account.remark || (this.account.openid ? `${this.account.openid.slice(0, 6)}****` : "token");
+        $.log(`\n========== ${APP.name} 账号[${this.index}] ${label} ==========`);
         await this.login();
         await this.queryPoints();
         await this.querySignInfo("签到前");

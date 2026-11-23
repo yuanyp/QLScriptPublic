@@ -135,7 +135,8 @@ def get_wx_code(account_id):
         "Content-Type": "application/json",
         "auth": WX_AUTH,
     }
-    body = json.dumps({"appid": MINI_APP_ID, "openid": account_id})
+    body = json.dumps({"appid": MINI_APP_ID, "openid": account_id,
+                       "app_id": MINI_APP_ID, "ref": account_id})
     last_msg = ""
     for attempt in range(4):
         if attempt:
@@ -153,7 +154,8 @@ def get_wx_code(account_id):
         if isinstance(data, dict) and data.get("status") is False:
             last_msg = data.get("message") or "获取失败"
             continue
-        code = data.get("code") or (data.get("data") or {}).get("code")
+        code = ((data.get("data") or {}).get("result") or {}).get("code") \
+            or (data.get("data") or {}).get("code") or data.get("code")
         if code:
             return code
         last_msg = "wx_server 未返回 code"

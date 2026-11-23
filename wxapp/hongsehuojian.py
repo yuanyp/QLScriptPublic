@@ -187,7 +187,8 @@ def smallcat(endpoint, account_id):
     if not WX_AUTH:
         raise RuntimeError("缺少 wx_auth, 无法调用 wx_server")
     headers = {"Accept": "application/json", "Content-Type": "application/json", "auth": WX_AUTH}
-    body = json.dumps({"appid": MINI_APP_ID, "openid": account_id})
+    body = json.dumps({"appid": MINI_APP_ID, "openid": account_id,
+                       "app_id": MINI_APP_ID, "ref": account_id})
     resp = session.post(f"{WX_SERVER_URL}{endpoint}", data=body, headers=headers, timeout=60)
     resp.raise_for_status()
     return resp.json()
@@ -207,7 +208,8 @@ def get_code(account_id, endpoint="/wx/code"):
         if isinstance(data, dict) and data.get("status") is False:
             last_msg = data.get("message") or "获取失败"
             continue
-        code = data.get("code") or (data.get("data") or {}).get("code")
+        code = ((data.get("data") or {}).get("result") or {}).get("code") \
+            or (data.get("data") or {}).get("code") or data.get("code")
         if code:
             return code
         last_msg = "wx_server 未返回 code"
@@ -215,8 +217,13 @@ def get_code(account_id, endpoint="/wx/code"):
 
 
 def get_encrypt_key(account_id):
-    data = (smallcat("/wx/encryptkey", account_id).get("data") or {})
-    return data.get("encrypt_key"), data.get("version")
+    resp = smallcat("/wx/encryptkey", account_id) or {}
+    data = (resp.get("data") or {})
+    # yyb-go 在 data 下多包一层 result；smallcat 直接在 data
+    result = (data.get("result") or {})
+    encrypt_key = result.get("encrypt_key") or data.get("encrypt_key")
+    version = result.get("version") or data.get("version")
+    return encrypt_key, version
 
 
 # ---------------------------------------------------------------------------
