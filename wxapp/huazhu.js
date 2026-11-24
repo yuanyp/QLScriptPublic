@@ -83,10 +83,15 @@ async function getWxCode(openid) {
   const { status, data } = await request({
     method: "POST",
     url: `${WX_SERVER_URL}/wx/code`,
-    headers: { auth: WX_AUTH, "Content-Type": "application/json" },
-    data: { appid: MINI_APP_ID, openid },
+    headers: {
+      auth: WX_AUTH,
+      Authorization: WX_AUTH ? `Bearer ${WX_AUTH}` : undefined,
+      "Content-Type": "application/json",
+    },
+    // 兼容 smallcat({appid,openid}) 与 yyb-go({app_id,ref}) 两种取码服务
+    data: { appid: MINI_APP_ID, openid, app_id: MINI_APP_ID, ref: openid },
   });
-  const code = data?.data?.code || data?.code;
+  const code = data?.data?.code || data?.data?.result?.code || data?.result?.code || data?.code;
   if (status !== 200 || !code) throw new Error(`获取 code 失败 HTTP ${status}: ${short(data)}`);
   return code;
 }
