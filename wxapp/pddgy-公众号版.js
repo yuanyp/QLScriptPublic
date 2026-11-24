@@ -10,7 +10,7 @@ cron: 28 9,13 * * *
 wx_server_url  默认 http://192.168.31.196:8787
 wx_auth        必填，wx_server 鉴权值
 ------------------------------------------
-契约（appid wx839691cce7c102bb，重风控站点）：
+契约（appid wx32540bd863b27570，重风控站点）：
 
 
 登录  GET https://mobile.yangkeduo.com/garden_index_lz_0.html?_pdd_fs=1&_pdd_tc=676666&_pdd_sbs=1&fun_id=wechat_app_home&__wls_rt=1&__wls_lt=1&__wls_fm=b&code=${code}&state=BASE
@@ -36,7 +36,7 @@ const path = require("path");
 const WeChatServer = require("./wcs.js");
 
 const ckName = "pddgy_gzh";
-const MINI_APP_ID = "wx839691cce7c102bb";
+const MINI_APP_ID = "wx32540bd863b27570";
 const XCX_VERSION = "v8.6.21";
 const PDD_APP_ID = 33;
 const API_BASE = "https://api.pinduoduo.com";
@@ -125,7 +125,7 @@ class Task {
     }
     async login() {
         const code = await this.getCode();
-        this.log(`获取code: ${short(code, 12)}...`);
+        this.log(`获取code成功 (长度 ${String(code).length})`);
         const loginBody = {
             code,
             has_auth: false,
@@ -155,7 +155,8 @@ class Task {
             const arr = Array.isArray(sc) ? sc : [sc];
             setCookieStr = arr.map((c) => String(c).split(";")[0]).join("; ");
         }
-        console.log(setCookieStr)
+        // 调试：仅输出 cookie 是否拿到及长度，绝不打印明文凭证
+        if (setCookieStr) this.log(`  登录响应已获取 Cookie (长度 ${setCookieStr.length})`);
         // 使用示例
         const accessToken = get_accessToken(setCookieStr);
         const uid = get_pdd_user_id(setCookieStr);
@@ -172,7 +173,7 @@ class Task {
         const cache = readCache();
         cache[this.account.openid] = { cookieStr: this.cookieStr, uid, updatedAt: new Date().toISOString() };
         writeCache(cache);
-        this.log(`登录成功 uid=${uid}`);
+        this.log(`登录成功 uid=${uid ? `${uid.slice(0, 3)}****${uid.slice(-4)}` : "空"}`);
     }
     async manorPost(apiPath, body) {
         const url = `${MANOR_BASE}${apiPath}${apiPath.includes("?") ? "&" : "?"}pdduid=${this.pdduid}`;
