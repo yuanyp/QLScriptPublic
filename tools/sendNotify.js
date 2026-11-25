@@ -119,7 +119,9 @@ const push_config = {
     AIBOTK_TYPE: '', // 智能微秘书 发送目标 room 或 contact
     AIBOTK_NAME: '', // 智能微秘书  发送群名 或者好友昵称和type要对应好
 
-    SMTP_SERVICE: '', // 邮箱服务名称，比如 126、163、Gmail、QQ 等，支持列表 https://github.com/nodemailer/nodemailer/blob/master/lib/well-known/services.json
+    SMTP_SERVICE: '', // 邮箱服务名称或 SMTP 主机，比如 QQ、smtp.qq.com:465
+    SMTP_SERVER: '', // SMTP 服务器 host:port，如 smtp.qq.com:465（优先于 SMTP_SERVICE）
+    SMTP_SSL: '', // 是否使用 SSL（true/false），配合 SMTP_SERVER
     SMTP_EMAIL: '', // SMTP 发件邮箱
     SMTP_TO: '', // SMTP 收件邮箱，默认通知将会发给发件邮箱
     SMTP_PASSWORD: '', // SMTP 登录密码，也可能为特殊口令，视具体邮件服务商说明而定
@@ -1042,16 +1044,39 @@ function fsBotNotify(text, desp) {
 }
 
 async function smtpNotify(text, desp) {
-    const { SMTP_EMAIL, SMTP_TO, SMTP_PASSWORD, SMTP_SERVICE, SMTP_NAME } =
+    const { SMTP_EMAIL, SMTP_TO, SMTP_PASSWORD, SMTP_SERVICE, SMTP_SERVER, SMTP_SSL, SMTP_NAME } =
         push_config;
-    if (![SMTP_EMAIL, SMTP_PASSWORD].every(Boolean) || !SMTP_SERVICE) {
+    if (![SMTP_EMAIL, SMTP_PASSWORD].every(Boolean) || !(SMTP_SERVICE || SMTP_SERVER)) {
         return;
+    }
+
+    // nodemailer 10.x 不再解析 service 别名（service:'QQ' 会退回 localhost:587），
+    // 因此优先用显式 host/port/secure；常见服务给出内置兜底。
+    const wellKnown = {
+        QQ: { host: 'smtp.qq.com', port: 465, secure: true },
+        '163': { host: 'smtp.163.com', port: 465, secure: true },
+        Gmail: { host: 'smtp.gmail.com', port: 465, secure: true },
+        Outlook: { host: 'smtp.outlook.com', port: 465, secure: true },
+    };
+    let transportOpts = null;
+    if (SMTP_SERVER) {
+        const [host, portRaw] = String(SMTP_SERVER).split(':');
+        const port = Number(portRaw) || 465;
+        transportOpts = { host, port, secure: String(SMTP_SSL ?? 'true') !== 'false' };
+    } else if (wellKnown[SMTP_SERVICE]) {
+        transportOpts = { ...wellKnown[SMTP_SERVICE] };
+    } else if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(String(SMTP_SERVICE))) {
+        // SMTP_SERVICE 直接填了 host[:port]
+        const [host, portRaw] = String(SMTP_SERVICE).split(':');
+        transportOpts = { host, port: Number(portRaw) || 465, secure: true };
+    } else {
+        transportOpts = { service: SMTP_SERVICE };
     }
 
     try {
         const nodemailer = require('nodemailer');
         const transporter = nodemailer.createTransport({
-            service: SMTP_SERVICE,
+            ...transportOpts,
             auth: {
                 user: SMTP_EMAIL,
                 pass: SMTP_PASSWORD,
